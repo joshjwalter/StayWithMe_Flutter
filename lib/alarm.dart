@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'countdown-timer.dart';
+import 'countdown_timer.dart';
 
 class AlarmPage extends StatelessWidget {
   const AlarmPage({super.key});
