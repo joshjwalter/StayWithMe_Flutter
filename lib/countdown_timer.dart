@@ -3,8 +3,24 @@ import 'package:flutter/material.dart';
 
 /// Countdown widget that targets a specific wall-clock time.
 ///
-/// Production uses real time via [nowProvider]. Tests can inject a fake clock.
-/// If [targetTime] is null, the default is `now + 1 minute`.
+/// The widget computes remaining time by subtracting the current time from
+/// [targetTime] and clamping to zero. It recomputes on every [tickInterval]
+/// using [nowProvider] so it stays aligned with the clock and avoids drift.
+///
+/// Defaults:
+/// - If [targetTime] is null, the widget sets it to `nowProvider() + 1 minute`.
+/// - [tickInterval] defaults to 1 second.
+///
+/// Testing:
+/// - Inject a deterministic clock with [nowProvider] so tests can advance time
+///   without waiting in real time.
+/// - Use [tickInterval] to control how often the countdown updates in tests.
+///
+/// Example:
+/// ```dart
+/// final target = DateTime.now().add(const Duration(seconds: 10));
+/// CountDownTimer(targetTime: target);
+/// ```
 class CountDownTimer extends StatefulWidget {
   const CountDownTimer({
     super.key,

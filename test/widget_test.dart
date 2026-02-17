@@ -13,6 +13,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:stay_with_me_flutter/countdown_timer.dart';
 
 void main() {
+  Widget buildTimer({
+    DateTime? targetTime,
+    required DateTime Function() nowProvider,
+    Duration tickInterval = const Duration(seconds: 1),
+  }) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: CountDownTimer(
+        targetTime: targetTime,
+        nowProvider: nowProvider,
+        tickInterval: tickInterval,
+      ),
+    );
+  }
+
   testWidgets('CountDownTimer counts down to zero', (
     WidgetTester tester,
   ) async {
@@ -20,10 +35,7 @@ void main() {
     final targetTime = now.add(const Duration(seconds: 3));
     DateTime nowProvider() => now;
     await tester.pumpWidget(
-      Directionality(
-        textDirection: TextDirection.ltr,
-        child: CountDownTimer(targetTime: targetTime, nowProvider: nowProvider),
-      ),
+      buildTimer(targetTime: targetTime, nowProvider: nowProvider),
     );
 
     expect(find.text('3'), findsOneWidget);
@@ -41,6 +53,56 @@ void main() {
     expect(find.text('0'), findsOneWidget);
   });
 
+  testWidgets('CountDownTimer clamps past target to zero', (
+    WidgetTester tester,
+  ) async {
+    DateTime now = DateTime(2026, 1, 1, 0, 0, 10);
+    final targetTime = now.subtract(const Duration(seconds: 5));
+    DateTime nowProvider() => now;
+    await tester.pumpWidget(
+      buildTimer(targetTime: targetTime, nowProvider: nowProvider),
+    );
+
+    expect(find.text('0'), findsOneWidget);
+  });
+
+  testWidgets('CountDownTimer uses default target when null', (
+    WidgetTester tester,
+  ) async {
+    DateTime now = DateTime(2026, 1, 1, 0, 0, 0);
+    DateTime nowProvider() => now;
+    await tester.pumpWidget(
+      buildTimer(nowProvider: nowProvider),
+    );
+
+    expect(find.text('60'), findsOneWidget);
+  });
+
+  testWidgets('CountDownTimer respects tickInterval', (
+    WidgetTester tester,
+  ) async {
+    DateTime now = DateTime(2026, 1, 1, 0, 0, 0);
+    final targetTime = now.add(const Duration(seconds: 5));
+    DateTime nowProvider() => now;
+    await tester.pumpWidget(
+      buildTimer(
+        targetTime: targetTime,
+        nowProvider: nowProvider,
+        tickInterval: const Duration(seconds: 2),
+      ),
+    );
+
+    expect(find.text('5'), findsOneWidget);
+
+    now = now.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('5'), findsOneWidget);
+
+    now = now.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('3'), findsOneWidget);
+  });
+
   testWidgets('CountDownTimer can be disposed safely', (
     WidgetTester tester,
   ) async {
@@ -48,10 +110,7 @@ void main() {
     final targetTime = now.add(const Duration(seconds: 2));
     DateTime nowProvider() => now;
     await tester.pumpWidget(
-      Directionality(
-        textDirection: TextDirection.ltr,
-        child: CountDownTimer(targetTime: targetTime, nowProvider: nowProvider),
-      ),
+      buildTimer(targetTime: targetTime, nowProvider: nowProvider),
     );
 
     now = now.add(const Duration(seconds: 1));
@@ -59,5 +118,6 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     now = now.add(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 2));
+    expect(tester.takeException(), isNull);
   });
 }
