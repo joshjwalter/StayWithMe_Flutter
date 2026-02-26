@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'home.dart';
+//import 'home.dart';
 import 'alarm.dart';
-import 'settings.dart';
+//import 'settings.dart';
 
 
 void main() {

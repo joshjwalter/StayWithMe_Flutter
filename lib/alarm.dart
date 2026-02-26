@@ -29,7 +29,9 @@ class AlarmPage extends StatelessWidget {
               width: 250,
               height: 60,
               child: ElevatedButton(
-                onPressed: () {},
+                onPressed: () {
+                  //start timer
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey,
                   foregroundColor: Colors.white,
@@ -37,6 +39,19 @@ class AlarmPage extends StatelessWidget {
                 child: Text('Start'),
               ),
             ),
+            SizedBox(height: 20), //Buffer for spacing
+            SizedBox(
+              width: 250,
+              height: 60,
+              child: ElevatedButton(
+                onPressed: () {},
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text('Stop'),
+              ),
+            )
           ],
         ),
       ),
