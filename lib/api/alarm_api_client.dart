@@ -42,6 +42,7 @@ class AlarmApiClient {
 
   Future<AlarmRequestResult> sendStartAlarm({
     required Duration duration,
+    required String timerId,
   }) async {
     if (!isConfigured) {
       return const AlarmRequestResult(
@@ -56,6 +57,7 @@ class AlarmApiClient {
       'event': 'alarm_start',
       'requestedAt': _nowProvider().toUtc().toIso8601String(),
       'durationSeconds': duration.inSeconds,
+      'timerId': timerId,
     });
 
     final response = await _client.post(
@@ -69,6 +71,55 @@ class AlarmApiClient {
       statusCode: response.statusCode,
       responseBody: response.body,
     );
+  }
+
+  Future<AlarmRequestResult> sendCancelAlarm({
+    required String timerId,
+  }) async {
+    if (!isConfigured) {
+      return const AlarmRequestResult(
+        sent: false,
+        statusCode: null,
+        responseBody: 'API_BASE_URL not configured',
+      );
+    }
+
+    final uri = Uri.parse(_baseUrl).resolve('/alarm/cancel');
+    final body = jsonEncode({
+      'event': 'alarm_cancel',
+      'requestedAt': _nowProvider().toUtc().toIso8601String(),
+      'timerId': timerId,
+    });
+
+    final response = await _client.post(
+      uri,
+      headers: const {'content-type': 'application/json'},
+      body: body,
+    ).timeout(const Duration(seconds: 5));
+
+    return AlarmRequestResult(
+      sent: true,
+      statusCode: response.statusCode,
+      responseBody: response.body,
+    );
+  }
+
+  /// Returns true when a GET /health to the configured server succeeds with
+  /// a 2xx status code.  Returns false on any network failure or non-2xx
+  /// response.
+  Future<bool> checkConnectivity() async {
+    if (!isConfigured) {
+      return false;
+    }
+    try {
+      final uri = Uri.parse(_baseUrl).resolve('/health');
+      final response = await _client
+          .get(uri)
+          .timeout(const Duration(seconds: 3));
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
   }
 
   void dispose() {

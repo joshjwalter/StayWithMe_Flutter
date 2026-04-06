@@ -95,6 +95,18 @@ def make_handler(store: RequestStore):
             }
             store.add(event)
 
+            # Log a human-readable summary for quick CI log scanning.
+            try:
+                parsed = json.loads(body_text) if body_text else {}
+            except json.JSONDecodeError:
+                parsed = {}
+            event_tag = parsed.get("event", self.path.lstrip("/"))
+            timer_id = parsed.get("timerId", "-")
+            sys.stdout.write(
+                f"EVENT path={self.path} event={event_tag} timerId={timer_id}\n"
+            )
+            sys.stdout.flush()
+
             self._set_json(202)
             self.wfile.write(json.dumps({"accepted": True}).encode("utf-8"))
 
