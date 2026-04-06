@@ -15,6 +15,13 @@ const List<Duration> kTimerPresets = [
   Duration(minutes: 60),
 ];
 
+/// Formats [seconds] as MM:SS, consistent with [CountDownTimer] display.
+String _formatMmSs(int seconds) {
+  final m = seconds ~/ 60;
+  final s = seconds % 60;
+  return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+}
+
 // ---------------------------------------------------------------------------
 // AlarmPage
 // ---------------------------------------------------------------------------
@@ -73,6 +80,9 @@ class _AlarmPageState extends State<AlarmPage> {
 
   // --- warning overlay ---
   bool _showFinalWarningOverlay = false;
+  // Remaining seconds captured when the 95% overlay is triggered.  Displayed
+  // in the overlay so the value stays consistent between timer ticks.
+  int _overlayRemainingSeconds = 0;
 
   // --- request state ---
   bool _requestInFlight = false;
@@ -114,7 +124,8 @@ class _AlarmPageState extends State<AlarmPage> {
 
   int get _remainingSeconds {
     if (_targetTime == null) return 0;
-    final diff = _targetTime!.difference(DateTime.now()).inSeconds;
+    final now = widget.nowProvider != null ? widget.nowProvider!() : DateTime.now();
+    final diff = _targetTime!.difference(now).inSeconds;
     return diff > 0 ? diff : 0;
   }
 
@@ -131,9 +142,9 @@ class _AlarmPageState extends State<AlarmPage> {
   Future<void> _startAlarm() async {
     if (_requestInFlight || _phase != _TimerPhase.idle) return;
 
-    final timerId =
-        DateTime.now().millisecondsSinceEpoch.toRadixString(16).toUpperCase();
-    final target = DateTime.now().add(_selectedDuration);
+    final now = widget.nowProvider != null ? widget.nowProvider!() : DateTime.now();
+    final timerId = now.millisecondsSinceEpoch.toRadixString(16).toUpperCase();
+    final target = now.add(_selectedDuration);
 
     setState(() {
       _requestInFlight = true;
@@ -226,7 +237,10 @@ class _AlarmPageState extends State<AlarmPage> {
   }
 
   void _onNinetyFivePercentWarning() {
-    setState(() => _showFinalWarningOverlay = true);
+    setState(() {
+      _overlayRemainingSeconds = _remainingSeconds;
+      _showFinalWarningOverlay = true;
+    });
   }
 
   void _onExpired() {
@@ -515,7 +529,9 @@ class _AlarmPageState extends State<AlarmPage> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  '${(_remainingSeconds / 60).ceil()} minutes remaining',
+                  // Show the exact remaining time (MM:SS) consistent with the
+                  // countdown widget, snapped to when the overlay was triggered.
+                  '${_formatMmSs(_overlayRemainingSeconds)} remaining',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
