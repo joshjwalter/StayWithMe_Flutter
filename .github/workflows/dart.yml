@@ -39,3 +39,27 @@ jobs:
       # want to change this to 'flutter test'.
       - name: Run tests
         run: flutter test
+
+      - name: Run web integration smoke test
+        run: |
+          set -euo pipefail
+          python3 scripts/request_capture_server.py --host 127.0.0.1 --port 54010 > request-server.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() {
+            kill "$SERVER_PID" || true
+          }
+          trap cleanup EXIT
+
+          python3 -c "import time,urllib.request,sys; ok=False
+for _ in range(30):
+  try:
+    r=urllib.request.urlopen('http://127.0.0.1:54010/health', timeout=1)
+    ok=(getattr(r,'status',None)==200)
+    r.close()
+    if ok: break
+  except Exception:
+    time.sleep(1)
+if not ok: sys.exit('server did not become healthy in time')"
+
+          flutter test --platform chrome test/web_alarm_request_smoke_test.dart \
+            --dart-define=API_BASE_URL=http://127.0.0.1:54010
