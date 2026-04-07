@@ -515,7 +515,7 @@ class _AlarmPageState extends State<AlarmPage> {
   Widget _buildFinalWarningOverlay(BuildContext context) {
     return Positioned.fill(
       child: Material(
-        color: Colors.red.shade900.withOpacity(0.95),
+        color: Colors.red.shade900.withValues(alpha: 0.95),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
