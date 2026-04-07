@@ -28,6 +28,7 @@ void main() {
 
     final sendResult = await client.sendStartAlarm(
       duration: const Duration(seconds: 90),
+      timerId: 'WEB-SMOKE-001',
     );
     expect(sendResult.sent, isTrue);
     expect(sendResult.isSuccess, isTrue);
