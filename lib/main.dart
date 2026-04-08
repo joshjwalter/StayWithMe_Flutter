@@ -8,12 +8,11 @@ import 'alarm.dart';
 
 void main() {
   tzdata.initializeTimeZones();
-  final systemTimeZone = DateTime.now().timeZoneName;
-  try {
-    tz.setLocalLocation(tz.getLocation(systemTimeZone));
-  } on ArgumentError {
-    tz.setLocalLocation(tz.UTC);
-  }
+  // Use UTC as the local timezone location. DateTime values used for
+  // notification scheduling are absolute instants, so UTC is correct and
+  // avoids relying on the unreliable timeZoneName abbreviation (e.g. "PDT")
+  // which is not a valid IANA tz database key.
+  tz.setLocalLocation(tz.UTC);
   runApp(const MyApp());
 }
 
@@ -70,11 +69,14 @@ class _NavigationBottomState extends State<NavigationBottom> {
             });
           },
         ),
-        body: <Widget>[
-          Text("Home"), //Make these three widgets of completely built out pages so i can just import
-          AlarmPage(),
-          Text("Settings")
-        ][currentPageIndex]
+        body: IndexedStack(
+          index: currentPageIndex,
+          children: const [
+            Center(child: Text("Home")), // Make these three widgets of completely built out pages so i can just import
+            AlarmPage(),
+            Center(child: Text("Settings")),
+          ],
+        ),
     );
   }
 }

@@ -222,10 +222,24 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       _statusMessage = 'Starting timer…';
     });
 
-    // Request notification permissions on first timer start
+    // Request notification permissions on first timer start.
+    // Only mark the request as attempted after it completes successfully so
+    // that a platform exception does not permanently suppress future prompts.
+    bool notificationsPermitted = false;
     if (!_notificationPermissionRequested) {
-      _notificationPermissionRequested = true;
-      await _notificationService.requestPermissions();
+      try {
+        notificationsPermitted =
+            await _notificationService.requestPermissions();
+        _notificationPermissionRequested = true;
+      } on Exception catch (e) {
+        // Permission request failed (e.g. platform channel error).
+        // Proceed with the timer start; notifications simply won't be scheduled.
+        debugPrint('Notification permission request failed: $e');
+      }
+    } else {
+      // Permission was already requested on a previous start; assume the
+      // previous answer still applies and proceed optimistically.
+      notificationsPermitted = true;
     }
 
     try {
@@ -263,19 +277,29 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       return;
     }
 
-    try {
-      await _notificationService.scheduleTimerNotifications(
-        targetTime: target,
-        totalDuration: _selectedDuration,
-        timerId: timerId,
-        isStealthMode: _isStealthMode,
-      );
-    } on Exception {
-      if (!mounted) return;
-      setState(() {
-        _statusMessage =
-            '$_statusMessage (background reminders unavailable on this device)';
-      });
+    if (notificationsPermitted) {
+      try {
+        await _notificationService.scheduleTimerNotifications(
+          targetTime: target,
+          totalDuration: _selectedDuration,
+          timerId: timerId,
+          isStealthMode: _isStealthMode,
+        );
+      } on Exception catch (e) {
+        if (!mounted) return;
+        debugPrint('Failed to schedule timer notifications: $e');
+        setState(() {
+          _statusMessage =
+              '$_statusMessage (background reminders unavailable on this device)';
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _statusMessage =
+              '$_statusMessage (notification permission denied — no background reminders)';
+        });
+      }
     }
 
     _scheduleConnectivityCheck();
