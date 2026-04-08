@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 //import 'home.dart';
 import 'alarm.dart';
 //import 'settings.dart';
 
 
 void main() {
-  runApp( MyApp() );
+  tz.initializeTimeZones();
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api/alarm_api_client.dart';
 import 'countdown_timer.dart';
+import 'services/notification_service.dart';
 
 // ---------------------------------------------------------------------------
 // Available timer preset durations (v1 — four fixed options).
@@ -54,9 +55,12 @@ enum _TimerPhase {
 class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   late final AlarmApiClient _apiClient;
   late final bool _ownsApiClient;
+  late final NotificationService _notificationService;
+  bool _notificationPermissionRequested = false;
 
   // --- selection state (idle phase) ---
   Duration _selectedDuration = kTimerPresets.last; // default 60 min
+  bool _isStealthMode = false;
 
   // --- active-timer state ---
   _TimerPhase _phase = _TimerPhase.idle;
@@ -84,6 +88,8 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     super.initState();
     _apiClient = widget.apiClient ?? AlarmApiClient();
     _ownsApiClient = widget.apiClient == null;
+    _notificationService = NotificationService();
+    _notificationService.initialize();
     WidgetsBinding.instance.addObserver(this);
     _scheduleConnectivityCheck(delay: Duration.zero, showChecking: true);
   }
@@ -209,10 +215,17 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       _statusMessage = 'Starting timer…';
     });
 
+    // Request notification permissions on first timer start
+    if (!_notificationPermissionRequested) {
+      _notificationPermissionRequested = true;
+      await _notificationService.requestPermissions();
+    }
+
     try {
       final result = await _apiClient.sendStartAlarm(
         duration: _selectedDuration,
         timerId: timerId,
+        stealthMode: _isStealthMode,
       );
       if (!mounted) return;
 
@@ -234,6 +247,14 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             : 'Timer started (offline — server unreachable)';
         _requestInFlight = false;
       });
+
+      // Schedule background notifications
+      await _notificationService.scheduleTimerNotifications(
+        targetTime: target,
+        totalDuration: _selectedDuration,
+        timerId: timerId,
+        isStealthMode: _isStealthMode,
+      );
 
       _scheduleConnectivityCheck();
     } catch (_) {
@@ -267,6 +288,10 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             : 'Cancelled (offline — server not reached)';
         _requestInFlight = false;
       });
+
+      // Cancel scheduled notifications
+      await _notificationService.cancelNotifications(timerId);
+
       _scheduleConnectivityCheck();
     } catch (_) {
       if (!mounted) return;
@@ -301,11 +326,18 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   }
 
   void _onExpired() {
+    final timerId = _activeTimerId;
     setState(() {
       _phase = _TimerPhase.expired;
       _showFinalWarningOverlay = false;
       _statusMessage = 'Timer expired — alert sent to emergency contacts.';
     });
+
+    // Cancel any remaining scheduled notifications
+    if (timerId != null) {
+      _notificationService.cancelNotifications(timerId);
+    }
+
     _scheduleConnectivityCheck();
   }
 
@@ -316,6 +348,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       _targetTime = null;
       _showFinalWarningOverlay = false;
       _statusMessage = '';
+      _isStealthMode = false; // Reset stealth mode
     });
     _scheduleConnectivityCheck();
   }
@@ -396,6 +429,15 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                 onSelected: (_) => setState(() => _selectedDuration = d),
               );
             }).toList(),
+          ),
+          const SizedBox(height: 24),
+          SwitchListTile(
+            key: const Key('stealth_mode_toggle'),
+            title: const Text('Stealth Mode'),
+            subtitle: const Text('Silent notifications (no sound or vibration)'),
+            value: _isStealthMode,
+            onChanged: (value) => setState(() => _isStealthMode = value),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 40),
           ),
           const SizedBox(height: 40),
           SizedBox(

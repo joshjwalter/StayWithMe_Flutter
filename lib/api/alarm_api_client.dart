@@ -42,6 +42,7 @@ class AlarmApiClient {
   Future<AlarmRequestResult> sendStartAlarm({
     required Duration duration,
     required String timerId,
+    bool stealthMode = false,
   }) async {
     if (!isConfigured) {
       return const AlarmRequestResult(
@@ -57,6 +58,7 @@ class AlarmApiClient {
       'requestedAt': _nowProvider().toUtc().toIso8601String(),
       'durationSeconds': duration.inSeconds,
       'timerId': timerId,
+      'stealthMode': stealthMode,
     });
 
     final response = await _client.post(
