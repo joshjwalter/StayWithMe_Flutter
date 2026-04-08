@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:stay_with_me_flutter/alarm.dart';
 import 'package:stay_with_me_flutter/api/alarm_api_client.dart';
+import 'test_harness/fake_notification_service.dart';
 
 class ScriptedAlarmApiClient extends AlarmApiClient {
   ScriptedAlarmApiClient({
@@ -42,6 +43,7 @@ class ScriptedAlarmApiClient extends AlarmApiClient {
   Future<AlarmRequestResult> sendStartAlarm({
     required Duration duration,
     required String timerId,
+    bool stealthMode = false,
   }) async {
     return startResult;
   }
@@ -58,8 +60,16 @@ void main() {
     final apiClient = ScriptedAlarmApiClient(
       connectivityResponses: [() => initialCheck.future],
     );
+    final notificationService = FakeNotificationService();
 
-    await tester.pumpWidget(MaterialApp(home: AlarmPage(apiClient: apiClient)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AlarmPage(
+          apiClient: apiClient,
+          notificationService: notificationService,
+        ),
+      ),
+    );
 
     initialCheck.complete(true);
     await tester.pump();
@@ -75,8 +85,16 @@ void main() {
     final apiClient = ScriptedAlarmApiClient(
       connectivityResponses: [() => initialCheck.future, () async => false],
     );
+    final notificationService = FakeNotificationService();
 
-    await tester.pumpWidget(MaterialApp(home: AlarmPage(apiClient: apiClient)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AlarmPage(
+          apiClient: apiClient,
+          notificationService: notificationService,
+        ),
+      ),
+    );
 
     await tester.pump();
 
@@ -113,8 +131,16 @@ void main() {
         () => reconnectCompleter.future,
       ],
     );
+    final notificationService = FakeNotificationService();
 
-    await tester.pumpWidget(MaterialApp(home: AlarmPage(apiClient: apiClient)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AlarmPage(
+          apiClient: apiClient,
+          notificationService: notificationService,
+        ),
+      ),
+    );
 
     await tester.pump();
 
@@ -158,10 +184,15 @@ void main() {
     final apiClient = ScriptedAlarmApiClient(
       connectivityResponses: [() => initialCheck.future, () async => true],
     );
+    final notificationService = FakeNotificationService();
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AlarmPage(apiClient: apiClient, nowProvider: nowProvider),
+        home: AlarmPage(
+          apiClient: apiClient,
+          nowProvider: nowProvider,
+          notificationService: notificationService,
+        ),
       ),
     );
 

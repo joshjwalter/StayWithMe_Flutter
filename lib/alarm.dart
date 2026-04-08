@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api/alarm_api_client.dart';
 import 'countdown_timer.dart';
+import 'services/notification_service.dart';
 
 // ---------------------------------------------------------------------------
 // Available timer preset durations (v1 — four fixed options).
@@ -21,12 +22,20 @@ const List<Duration> kTimerPresets = [
 // AlarmPage
 // ---------------------------------------------------------------------------
 class AlarmPage extends StatefulWidget {
-  const AlarmPage({super.key, this.apiClient, this.nowProvider});
+  const AlarmPage({
+    super.key,
+    this.apiClient,
+    this.nowProvider,
+    this.notificationService,
+  });
 
   final AlarmApiClient? apiClient;
 
   /// Clock source forwarded to the countdown widget and API client.
   final DateTime Function()? nowProvider;
+
+  /// Notification service dependency for production/test injection.
+  final NotificationService? notificationService;
 
   @override
   State<AlarmPage> createState() => _AlarmPageState();
@@ -54,9 +63,12 @@ enum _TimerPhase {
 class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   late final AlarmApiClient _apiClient;
   late final bool _ownsApiClient;
+  late final NotificationService _notificationService;
+  bool _notificationPermissionRequested = false;
 
   // --- selection state (idle phase) ---
   Duration _selectedDuration = kTimerPresets.last; // default 60 min
+  bool _isStealthMode = false;
 
   // --- active-timer state ---
   _TimerPhase _phase = _TimerPhase.idle;
@@ -84,6 +96,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     super.initState();
     _apiClient = widget.apiClient ?? AlarmApiClient();
     _ownsApiClient = widget.apiClient == null;
+    _notificationService = widget.notificationService ?? NotificationService();
     WidgetsBinding.instance.addObserver(this);
     _scheduleConnectivityCheck(delay: Duration.zero, showChecking: true);
   }
@@ -209,10 +222,31 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       _statusMessage = 'Starting timer…';
     });
 
+    // Request notification permissions on first timer start.
+    // Only mark the request as attempted after it completes successfully so
+    // that a platform exception does not permanently suppress future prompts.
+    bool notificationsPermitted = false;
+    if (!_notificationPermissionRequested) {
+      try {
+        notificationsPermitted =
+            await _notificationService.requestPermissions();
+        _notificationPermissionRequested = true;
+      } on Exception catch (e) {
+        // Permission request failed (e.g. platform channel error).
+        // Proceed with the timer start; notifications simply won't be scheduled.
+        debugPrint('Notification permission request failed: $e');
+      }
+    } else {
+      // Permission was already requested on a previous start; assume the
+      // previous answer still applies and proceed optimistically.
+      notificationsPermitted = true;
+    }
+
     try {
       final result = await _apiClient.sendStartAlarm(
         duration: _selectedDuration,
         timerId: timerId,
+        stealthMode: _isStealthMode,
       );
       if (!mounted) return;
 
@@ -234,15 +268,41 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             : 'Timer started (offline — server unreachable)';
         _requestInFlight = false;
       });
-
-      _scheduleConnectivityCheck();
-    } catch (_) {
+    } on Exception {
       if (!mounted) return;
       setState(() {
         _statusMessage = 'Failed to start timer (network error)';
         _requestInFlight = false;
       });
+      return;
     }
+
+    if (notificationsPermitted) {
+      try {
+        await _notificationService.scheduleTimerNotifications(
+          targetTime: target,
+          totalDuration: _selectedDuration,
+          timerId: timerId,
+          isStealthMode: _isStealthMode,
+        );
+      } on Exception catch (e) {
+        if (!mounted) return;
+        debugPrint('Failed to schedule timer notifications: $e');
+        setState(() {
+          _statusMessage =
+              '$_statusMessage (background reminders unavailable on this device)';
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _statusMessage =
+              '$_statusMessage (notification permission denied — no background reminders)';
+        });
+      }
+    }
+
+    _scheduleConnectivityCheck();
   }
 
   Future<void> _cancelAlarm() async {
@@ -267,14 +327,25 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             : 'Cancelled (offline — server not reached)';
         _requestInFlight = false;
       });
-      _scheduleConnectivityCheck();
-    } catch (_) {
+    } on Exception {
       if (!mounted) return;
       setState(() {
         _statusMessage = 'Cancel failed (network error)';
         _requestInFlight = false;
       });
+      return;
     }
+
+    try {
+      await _notificationService.cancelNotifications(timerId);
+    } on Exception {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = '$_statusMessage (could not clear reminders)';
+      });
+    }
+
+    _scheduleConnectivityCheck();
   }
 
   void _onEightyPercentWarning() {
@@ -301,11 +372,22 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   }
 
   void _onExpired() {
+    final timerId = _activeTimerId;
     setState(() {
       _phase = _TimerPhase.expired;
       _showFinalWarningOverlay = false;
       _statusMessage = 'Timer expired — alert sent to emergency contacts.';
     });
+
+    // Cancel any remaining scheduled notifications
+    if (timerId != null) {
+      unawaited(
+        _notificationService.cancelNotifications(timerId).catchError((error) {
+          debugPrint('Failed to cancel notifications for expired timer: $error');
+        }),
+      );
+    }
+
     _scheduleConnectivityCheck();
   }
 
@@ -316,6 +398,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       _targetTime = null;
       _showFinalWarningOverlay = false;
       _statusMessage = '';
+      _isStealthMode = false; // Reset stealth mode
     });
     _scheduleConnectivityCheck();
   }
@@ -396,6 +479,15 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                 onSelected: (_) => setState(() => _selectedDuration = d),
               );
             }).toList(),
+          ),
+          const SizedBox(height: 24),
+          SwitchListTile(
+            key: const Key('stealth_mode_toggle'),
+            title: const Text('Stealth Mode'),
+            subtitle: const Text('Silent notifications (no sound or vibration)'),
+            value: _isStealthMode,
+            onChanged: (value) => setState(() => _isStealthMode = value),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 40),
           ),
           const SizedBox(height: 40),
           SizedBox(
