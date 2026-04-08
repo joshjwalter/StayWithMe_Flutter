@@ -15,12 +15,7 @@ const List<Duration> kTimerPresets = [
   Duration(minutes: 60),
 ];
 
-/// Formats [seconds] as MM:SS, consistent with [CountDownTimer] display.
-String _formatMmSs(int seconds) {
-  final m = seconds ~/ 60;
-  final s = seconds % 60;
-  return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-}
+
 
 // ---------------------------------------------------------------------------
 // AlarmPage
@@ -608,7 +603,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                 Text(
                   // Show the exact remaining time (MM:SS) consistent with the
                   // countdown widget, snapped to when the overlay was triggered.
-                  '${_formatMmSs(_overlayRemainingSeconds)} remaining',
+                  '${CountDownTimer.formatMmSs(_overlayRemainingSeconds)} remaining',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,

@@ -60,6 +60,13 @@ class CountDownTimer extends StatefulWidget {
   /// Called once when the countdown reaches zero.
   final VoidCallback? onExpired;
 
+  /// Formats [seconds] as MM:SS.
+  static String formatMmSs(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
   @override
   State<CountDownTimer> createState() => _CountDownTimerState();
 }
@@ -153,17 +160,10 @@ class _CountDownTimerState extends State<CountDownTimer> {
     super.dispose();
   }
 
-  /// Formats [seconds] as MM:SS.
-  static String _format(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     return Text(
-      _format(secondsLeft),
+      CountDownTimer.formatMmSs(secondsLeft),
       style: const TextStyle(color: Colors.white, fontSize: 50),
     );
   }
