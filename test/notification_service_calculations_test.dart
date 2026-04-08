@@ -1,7 +1,46 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:stay_with_me_flutter/services/notification_service.dart';
 
+int _fnv1a32(String input) {
+  const fnvOffsetBasis = 0x811C9DC5;
+  const fnvPrime = 0x01000193;
+  var hash = fnvOffsetBasis;
+  for (final codeUnit in input.codeUnits) {
+    hash ^= codeUnit;
+    hash = (hash * fnvPrime) & 0xFFFFFFFF;
+  }
+  return hash & 0x7FFFFFFF;
+}
+
 void main() {
+  const pluginChannel = MethodChannel('dexterous.com/flutter/local_notifications');
+
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pluginChannel, (MethodCall call) async {
+      switch (call.method) {
+        case 'initialize':
+          return true;
+        case 'zonedSchedule':
+        case 'cancel':
+        case 'cancelAll':
+          return null;
+        case 'requestNotificationsPermission':
+          return true;
+        default:
+          return null;
+      }
+    });
+  });
+
+  tearDownAll(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pluginChannel, null);
+  });
+
   group('NotificationService Threshold Calculations', () {
     test('calculates correct 80% and 95% times for 15 minute timer', () {
       // For a 15 minute timer:
@@ -97,12 +136,12 @@ void main() {
 
     test('notification IDs are deterministic based on timerId', () {
       const timerId = 'TEST-123';
-      final id80 = '${timerId}_80'.hashCode & 0x7FFFFFFF;
-      final id95 = '${timerId}_95'.hashCode & 0x7FFFFFFF;
+      final id80 = _fnv1a32('${timerId}_80');
+      final id95 = _fnv1a32('${timerId}_95');
 
       // IDs should be consistent
-      expect(id80, '${timerId}_80'.hashCode & 0x7FFFFFFF);
-      expect(id95, '${timerId}_95'.hashCode & 0x7FFFFFFF);
+      expect(id80, _fnv1a32('${timerId}_80'));
+      expect(id95, _fnv1a32('${timerId}_95'));
 
       // IDs should be different
       expect(id80, isNot(equals(id95)));
@@ -116,8 +155,8 @@ void main() {
       const timerId1 = 'TIMER-001';
       const timerId2 = 'TIMER-002';
 
-      final id1_80 = '${timerId1}_80'.hashCode & 0x7FFFFFFF;
-      final id2_80 = '${timerId2}_80'.hashCode & 0x7FFFFFFF;
+      final id1_80 = _fnv1a32('${timerId1}_80');
+      final id2_80 = _fnv1a32('${timerId2}_80');
 
       // Different timers should have different notification IDs
       expect(id1_80, isNot(equals(id2_80)));

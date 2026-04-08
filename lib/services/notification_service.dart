@@ -45,6 +45,10 @@ class NotificationService {
   /// Returns true if permissions granted, false otherwise.
   /// On Android 12 and below, permissions are granted by default.
   Future<bool> requestPermissions() async {
+    if (!_initialized) {
+      await initialize();
+    }
+
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       final result = await _plugin
           .resolvePlatformSpecificImplementation<
@@ -104,7 +108,7 @@ class NotificationService {
       final remainingSeconds = (totalDuration.inSeconds * 0.05).round();
       final remainingDisplay = remainingSeconds >= 60
           ? '${(remainingSeconds / 60).ceil()} minute${remainingSeconds >= 120 ? 's' : ''}'
-          : '$remainingSeconds';
+          : '$remainingSeconds second${remainingSeconds == 1 ? '' : 's'}';
       await _scheduleNotification(
         id: _getNotificationId(timerId, '95'),
         scheduledDate: ninetyFivePercentTime,
@@ -185,8 +189,16 @@ class NotificationService {
 
   /// Generates a deterministic notification ID from timer ID and threshold.
   int _getNotificationId(String timerId, String threshold) {
-    // Use hashCode to generate stable integer IDs from string identifiers
-    return '${timerId}_$threshold'.hashCode & 0x7FFFFFFF; // Ensure positive
+    final input = '${timerId}_$threshold';
+    const int fnvOffsetBasis = 0x811C9DC5;
+    const int fnvPrime = 0x01000193;
+
+    var hash = fnvOffsetBasis;
+    for (final codeUnit in input.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * fnvPrime) & 0xFFFFFFFF;
+    }
+    return hash & 0x7FFFFFFF;
   }
 
   /// Converts DateTime to TZDateTime for scheduling.

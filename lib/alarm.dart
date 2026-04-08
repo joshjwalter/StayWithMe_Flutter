@@ -22,12 +22,20 @@ const List<Duration> kTimerPresets = [
 // AlarmPage
 // ---------------------------------------------------------------------------
 class AlarmPage extends StatefulWidget {
-  const AlarmPage({super.key, this.apiClient, this.nowProvider});
+  const AlarmPage({
+    super.key,
+    this.apiClient,
+    this.nowProvider,
+    this.notificationService,
+  });
 
   final AlarmApiClient? apiClient;
 
   /// Clock source forwarded to the countdown widget and API client.
   final DateTime Function()? nowProvider;
+
+  /// Notification service dependency for production/test injection.
+  final NotificationService? notificationService;
 
   @override
   State<AlarmPage> createState() => _AlarmPageState();
@@ -88,8 +96,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     super.initState();
     _apiClient = widget.apiClient ?? AlarmApiClient();
     _ownsApiClient = widget.apiClient == null;
-    _notificationService = NotificationService();
-    _notificationService.initialize();
+    _notificationService = widget.notificationService ?? NotificationService();
     WidgetsBinding.instance.addObserver(this);
     _scheduleConnectivityCheck(delay: Duration.zero, showChecking: true);
   }
@@ -247,23 +254,31 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             : 'Timer started (offline — server unreachable)';
         _requestInFlight = false;
       });
+    } on Exception {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Failed to start timer (network error)';
+        _requestInFlight = false;
+      });
+      return;
+    }
 
-      // Schedule background notifications
+    try {
       await _notificationService.scheduleTimerNotifications(
         targetTime: target,
         totalDuration: _selectedDuration,
         timerId: timerId,
         isStealthMode: _isStealthMode,
       );
-
-      _scheduleConnectivityCheck();
-    } catch (_) {
+    } on Exception {
       if (!mounted) return;
       setState(() {
-        _statusMessage = 'Failed to start timer (network error)';
-        _requestInFlight = false;
+        _statusMessage =
+            '$_statusMessage (background reminders unavailable on this device)';
       });
     }
+
+    _scheduleConnectivityCheck();
   }
 
   Future<void> _cancelAlarm() async {
@@ -288,18 +303,25 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             : 'Cancelled (offline — server not reached)';
         _requestInFlight = false;
       });
-
-      // Cancel scheduled notifications
-      await _notificationService.cancelNotifications(timerId);
-
-      _scheduleConnectivityCheck();
-    } catch (_) {
+    } on Exception {
       if (!mounted) return;
       setState(() {
         _statusMessage = 'Cancel failed (network error)';
         _requestInFlight = false;
       });
+      return;
     }
+
+    try {
+      await _notificationService.cancelNotifications(timerId);
+    } on Exception {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = '$_statusMessage (could not clear reminders)';
+      });
+    }
+
+    _scheduleConnectivityCheck();
   }
 
   void _onEightyPercentWarning() {
@@ -335,7 +357,11 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 
     // Cancel any remaining scheduled notifications
     if (timerId != null) {
-      _notificationService.cancelNotifications(timerId);
+      unawaited(
+        _notificationService.cancelNotifications(timerId).catchError((error) {
+          debugPrint('Failed to cancel notifications for expired timer: $error');
+        }),
+      );
     }
 
     _scheduleConnectivityCheck();

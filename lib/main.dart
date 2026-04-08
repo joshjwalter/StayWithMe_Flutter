@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 //import 'home.dart';
 import 'alarm.dart';
@@ -7,7 +7,13 @@ import 'alarm.dart';
 
 
 void main() {
-  tz.initializeTimeZones();
+  tzdata.initializeTimeZones();
+  final systemTimeZone = DateTime.now().timeZoneName;
+  try {
+    tz.setLocalLocation(tz.getLocation(systemTimeZone));
+  } on ArgumentError {
+    tz.setLocalLocation(tz.UTC);
+  }
   runApp(const MyApp());
 }
 
