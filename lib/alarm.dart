@@ -7,16 +7,24 @@ import 'countdown_timer.dart';
 import 'services/notification_service.dart';
 
 // ---------------------------------------------------------------------------
-// Available timer preset durations (v1 — four fixed options).
+// Available timer preset durations.
+//
+// NOTE: 2-minute preset is intentionally kept for local debugging.
 // ---------------------------------------------------------------------------
 const List<Duration> kTimerPresets = [
+  Duration(minutes: 2),
   Duration(minutes: 15),
   Duration(minutes: 30),
   Duration(minutes: 45),
   Duration(minutes: 60),
 ];
 
-
+const List<Duration> kStandardTimerPresets = [
+  Duration(minutes: 15),
+  Duration(minutes: 30),
+  Duration(minutes: 45),
+  Duration(minutes: 60),
+];
 
 // ---------------------------------------------------------------------------
 // AlarmPage
@@ -27,6 +35,7 @@ class AlarmPage extends StatefulWidget {
     this.apiClient,
     this.nowProvider,
     this.notificationService,
+    this.debugModeEnabled = false,
   });
 
   final AlarmApiClient? apiClient;
@@ -36,6 +45,9 @@ class AlarmPage extends StatefulWidget {
 
   /// Notification service dependency for production/test injection.
   final NotificationService? notificationService;
+
+  /// Enables debug-only UI affordances for local testing.
+  final bool debugModeEnabled;
 
   @override
   State<AlarmPage> createState() => _AlarmPageState();
@@ -67,12 +79,13 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   bool _notificationPermissionRequested = false;
 
   // --- selection state (idle phase) ---
-  Duration _selectedDuration = kTimerPresets.last; // default 60 min
+  Duration _selectedDuration = kStandardTimerPresets.last; // default 60 min
   bool _isStealthMode = false;
 
   // --- active-timer state ---
   _TimerPhase _phase = _TimerPhase.idle;
   String? _activeTimerId;
+  Duration? _activeDuration;
   DateTime? _targetTime;
 
   // --- connectivity ---
@@ -81,11 +94,8 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   DateTime? _lastConnectivityCheckAt;
   Timer? _connectivityTimer;
 
-  // --- warning overlay ---
-  bool _showFinalWarningOverlay = false;
-  // Remaining seconds captured when the 95% overlay is triggered.  Displayed
-  // in the overlay so the value stays consistent between timer ticks.
-  int _overlayRemainingSeconds = 0;
+  // --- final-warning state ---
+  bool _isFinalWarningActive = false;
 
   // --- request state ---
   bool _requestInFlight = false;
@@ -99,6 +109,29 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     _notificationService = widget.notificationService ?? NotificationService();
     WidgetsBinding.instance.addObserver(this);
     _scheduleConnectivityCheck(delay: Duration.zero, showChecking: true);
+  }
+
+  List<Duration> get _idleTimerPresets =>
+      widget.debugModeEnabled ? kTimerPresets : kStandardTimerPresets;
+
+  void _coerceSelectedDurationForMode() {
+    if (_idleTimerPresets.contains(_selectedDuration)) {
+      return;
+    }
+
+    _selectedDuration = kStandardTimerPresets.last;
+  }
+
+  @override
+  void didUpdateWidget(covariant AlarmPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.debugModeEnabled || widget.debugModeEnabled) {
+      return;
+    }
+
+    setState(() {
+      _coerceSelectedDurationForMode();
+    });
   }
 
   @override
@@ -211,11 +244,12 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   Future<void> _startAlarm() async {
     if (_requestInFlight || _phase != _TimerPhase.idle) return;
 
+    final startedDuration = _selectedDuration;
     final now = widget.nowProvider != null
         ? widget.nowProvider!()
         : DateTime.now();
     final timerId = now.millisecondsSinceEpoch.toRadixString(16).toUpperCase();
-    final target = now.add(_selectedDuration);
+    final target = now.add(startedDuration);
 
     setState(() {
       _requestInFlight = true;
@@ -228,8 +262,8 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     bool notificationsPermitted = false;
     if (!_notificationPermissionRequested) {
       try {
-        notificationsPermitted =
-            await _notificationService.requestPermissions();
+        notificationsPermitted = await _notificationService
+            .requestPermissions();
         _notificationPermissionRequested = true;
       } on Exception catch (e) {
         // Permission request failed (e.g. platform channel error).
@@ -244,7 +278,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 
     try {
       final result = await _apiClient.sendStartAlarm(
-        duration: _selectedDuration,
+        duration: startedDuration,
         timerId: timerId,
         stealthMode: _isStealthMode,
       );
@@ -260,9 +294,10 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 
       setState(() {
         _activeTimerId = timerId;
+        _activeDuration = startedDuration;
         _targetTime = target;
         _phase = _TimerPhase.active;
-        _showFinalWarningOverlay = false;
+        _isFinalWarningActive = false;
         _statusMessage = result.sent
             ? 'Timer started (${result.statusCode})'
             : 'Timer started (offline — server unreachable)';
@@ -279,18 +314,31 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 
     if (notificationsPermitted) {
       try {
+        final exactSchedulingSupported = await _notificationService
+            .supportsExactScheduling();
         await _notificationService.scheduleTimerNotifications(
           targetTime: target,
-          totalDuration: _selectedDuration,
+          totalDuration: startedDuration,
           timerId: timerId,
           isStealthMode: _isStealthMode,
         );
+        final queuedReminders = await _notificationService
+            .countPendingNotificationsForTimer(timerId);
+        if (!mounted) return;
+        setState(() {
+          final scheduleModeSuffix = exactSchedulingSupported
+              ? ''
+              : ' (using inexact schedule)';
+          _statusMessage = queuedReminders > 0
+              ? '$_statusMessage ($queuedReminders reminder${queuedReminders == 1 ? '' : 's'} scheduled$scheduleModeSuffix)'
+              : '$_statusMessage (reminders were not queued$scheduleModeSuffix)';
+        });
       } on Exception catch (e) {
         if (!mounted) return;
-        debugPrint('Failed to schedule timer notifications: $e');
+        debugPrint('Failed to schedule timer notifications for $timerId: $e');
         setState(() {
           _statusMessage =
-              '$_statusMessage (background reminders unavailable on this device)';
+              '$_statusMessage (background reminders failed to schedule)';
         });
       }
     } else {
@@ -321,7 +369,8 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 
       setState(() {
         _phase = _TimerPhase.cancelled;
-        _showFinalWarningOverlay = false;
+        _activeDuration = null;
+        _isFinalWarningActive = false;
         _statusMessage = result.sent
             ? 'Timer cancelled (${result.statusCode})'
             : 'Cancelled (offline — server not reached)';
@@ -366,8 +415,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 
   void _onNinetyFivePercentWarning() {
     setState(() {
-      _overlayRemainingSeconds = _remainingSeconds;
-      _showFinalWarningOverlay = true;
+      _isFinalWarningActive = true;
     });
   }
 
@@ -375,7 +423,8 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     final timerId = _activeTimerId;
     setState(() {
       _phase = _TimerPhase.expired;
-      _showFinalWarningOverlay = false;
+      _activeDuration = null;
+      _isFinalWarningActive = false;
       _statusMessage = 'Timer expired — alert sent to emergency contacts.';
     });
 
@@ -383,7 +432,9 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     if (timerId != null) {
       unawaited(
         _notificationService.cancelNotifications(timerId).catchError((error) {
-          debugPrint('Failed to cancel notifications for expired timer: $error');
+          debugPrint(
+            'Failed to cancel notifications for expired timer: $error',
+          );
         }),
       );
     }
@@ -395,10 +446,12 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     setState(() {
       _phase = _TimerPhase.idle;
       _activeTimerId = null;
+      _activeDuration = null;
       _targetTime = null;
-      _showFinalWarningOverlay = false;
+      _isFinalWarningActive = false;
       _statusMessage = '';
       _isStealthMode = false; // Reset stealth mode
+      _coerceSelectedDurationForMode();
     });
     _scheduleConnectivityCheck();
   }
@@ -431,12 +484,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          _buildBody(context),
-          if (_showFinalWarningOverlay) _buildFinalWarningOverlay(context),
-        ],
-      ),
+      body: _buildBody(context),
     );
   }
 
@@ -470,7 +518,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             spacing: 12,
             runSpacing: 12,
             alignment: WrapAlignment.center,
-            children: kTimerPresets.map((d) {
+            children: _idleTimerPresets.map((d) {
               final isSelected = d == _selectedDuration;
               final label = '${d.inMinutes} min';
               return ChoiceChip(
@@ -484,7 +532,9 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
           SwitchListTile(
             key: const Key('stealth_mode_toggle'),
             title: const Text('Stealth Mode'),
-            subtitle: const Text('Silent notifications (no sound or vibration)'),
+            subtitle: const Text(
+              'Silent notifications (no sound or vibration)',
+            ),
             value: _isStealthMode,
             onChanged: (value) => setState(() => _isStealthMode = value),
             contentPadding: const EdgeInsets.symmetric(horizontal: 40),
@@ -522,86 +572,119 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     final isCancelEnabled =
         !_requestInFlight &&
         _connectivityStatus == _ConnectivityStatus.connected;
+    final backgroundColor = _isFinalWarningActive
+        ? Colors.red.shade50
+        : Theme.of(context).scaffoldBackgroundColor;
+    final timerCircleColor = _isFinalWarningActive
+        ? Colors.red.shade800
+        : Colors.blueGrey;
 
-    return Column(
-      children: [
-        if (showOfflineBanner)
-          Material(
-            key: const Key('offline_banner'),
-            color: Colors.red.shade700,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Row(
+    return ColoredBox(
+      color: backgroundColor,
+      child: Column(
+        children: [
+          if (showOfflineBanner)
+            Material(
+              key: const Key('offline_banner'),
+              color: Colors.red.shade700,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi_off, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Offline timer cannot be stopped until connection is restored',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.wifi_off, color: Colors.white, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Offline timer cannot be stopped until connection is restored',
-                      style: TextStyle(color: Colors.white),
+                  if (_isFinalWarningActive) ...[
+                    Container(
+                      key: const Key('final_warning_banner'),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade700,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'Final warning: less than 5% remaining. Cancel now if needed.',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                  Container(
+                    width: 250,
+                    height: 250,
+                    decoration: BoxDecoration(
+                      color: timerCircleColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: CountDownTimer(
+                        key: ValueKey(_activeTimerId),
+                        targetTime: _targetTime,
+                        totalDuration: _activeDuration ?? _selectedDuration,
+                        nowProvider: widget.nowProvider ?? DateTime.now,
+                        onEightyPercentWarning: _onEightyPercentWarning,
+                        onNinetyFivePercentWarning: _onNinetyFivePercentWarning,
+                        onExpired: _onExpired,
+                      ),
+                    ),
+                  ),
+                  if (widget.debugModeEnabled) ...[
+                    const SizedBox(height: 24),
+                    Text(
+                      _statusMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                  SizedBox(
+                    width: 250,
+                    height: 60,
+                    child: ElevatedButton(
+                      key: const Key('cancel_button'),
+                      onPressed: isCancelEnabled ? _cancelAlarm : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.red.shade200,
+                        disabledForegroundColor: Colors.white70,
+                      ),
+                      child: _requestInFlight
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text(
+                              'Cancel Timer',
+                              style: TextStyle(fontSize: 18),
+                            ),
                     ),
                   ),
                 ],
               ),
             ),
           ),
-        Expanded(
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 250,
-                  height: 250,
-                  decoration: const BoxDecoration(
-                    color: Colors.blueGrey,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: CountDownTimer(
-                      key: ValueKey(_activeTimerId),
-                      targetTime: _targetTime,
-                      totalDuration: _selectedDuration,
-                      nowProvider: widget.nowProvider ?? DateTime.now,
-                      onEightyPercentWarning: _onEightyPercentWarning,
-                      onNinetyFivePercentWarning: _onNinetyFivePercentWarning,
-                      onExpired: _onExpired,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  _statusMessage,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: 250,
-                  height: 60,
-                  child: ElevatedButton(
-                    key: const Key('cancel_button'),
-                    onPressed: isCancelEnabled ? _cancelAlarm : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: Colors.red.shade200,
-                      disabledForegroundColor: Colors.white70,
-                    ),
-                    child: _requestInFlight
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'Cancel Timer',
-                            style: TextStyle(fontSize: 18),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -666,85 +749,6 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // --- 95 % full-screen overlay ---
-
-  Widget _buildFinalWarningOverlay(BuildContext context) {
-    final isCancelEnabled =
-        !_requestInFlight &&
-        _connectivityStatus == _ConnectivityStatus.connected;
-
-    return Positioned.fill(
-      child: Material(
-        color: Colors.red.shade900.withValues(alpha: 0.95),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.notification_important,
-                  size: 80,
-                  color: Colors.white,
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  // Show the exact remaining time (MM:SS) consistent with the
-                  // countdown widget, snapped to when the overlay was triggered.
-                  '${CountDownTimer.formatMmSs(_overlayRemainingSeconds)} remaining',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Last chance to cancel.\nIf you are offline you cannot stop this timer.',
-                  style: TextStyle(color: Colors.white70, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 40),
-                SizedBox(
-                  width: double.infinity,
-                  height: 64,
-                  child: ElevatedButton(
-                    key: const Key('final_cancel_button'),
-                    onPressed: isCancelEnabled ? _cancelAlarm : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.red.shade900,
-                      disabledBackgroundColor: Colors.white70,
-                      disabledForegroundColor: Colors.red.shade300,
-                    ),
-                    child: const Text(
-                      'Cancel Timer Now',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextButton(
-                  key: const Key('dismiss_overlay_button'),
-                  onPressed: () =>
-                      setState(() => _showFinalWarningOverlay = false),
-                  child: const Text(
-                    'Dismiss (timer continues)',
-                    style: TextStyle(color: Colors.white60),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

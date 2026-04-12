@@ -91,7 +91,9 @@ void main() {
       expect(toggle.value, isTrue);
     });
 
-    testWidgets('Stealth mode toggle can be toggled multiple times', (tester) async {
+    testWidgets('Stealth mode toggle can be toggled multiple times', (
+      tester,
+    ) async {
       final apiClient = AlwaysOnlineAlarmApiClient();
       final notificationService = FakeNotificationService();
       await tester.pumpWidget(
@@ -131,7 +133,9 @@ void main() {
       expect(toggle.value, isTrue);
     });
 
-    testWidgets('Stealth mode toggle is only visible in idle state', (tester) async {
+    testWidgets('Stealth mode toggle is only visible in idle state', (
+      tester,
+    ) async {
       // Create a mock API client that returns offline
       final mockApiClient = AlwaysOnlineAlarmApiClient();
       final notificationService = FakeNotificationService();
@@ -161,7 +165,9 @@ void main() {
       expect(find.byKey(const Key('stealth_mode_toggle')), findsNothing);
     });
 
-    testWidgets('Stealth mode resets to OFF after cancel and reset', (tester) async {
+    testWidgets('Stealth mode resets to OFF after cancel and reset', (
+      tester,
+    ) async {
       final mockApiClient = AlwaysOnlineAlarmApiClient();
       final notificationService = FakeNotificationService();
 
@@ -202,7 +208,9 @@ void main() {
       expect(toggle.value, isFalse);
     });
 
-    testWidgets('Duration selection and stealth toggle can both be changed', (tester) async {
+    testWidgets('Duration selection and stealth toggle can both be changed', (
+      tester,
+    ) async {
       final apiClient = AlwaysOnlineAlarmApiClient();
       final notificationService = FakeNotificationService();
       await tester.pumpWidget(
@@ -265,7 +273,7 @@ void main() {
     });
 
     testWidgets('All timer durations work with stealth mode', (tester) async {
-      final durations = ['15 min', '30 min', '45 min', '60 min'];
+      final durations = ['2 min', '15 min', '30 min', '45 min', '60 min'];
 
       for (final duration in durations) {
         final apiClient = AlwaysOnlineAlarmApiClient();
@@ -275,6 +283,7 @@ void main() {
             home: Scaffold(
               body: AlarmPage(
                 apiClient: apiClient,
+                debugModeEnabled: true,
                 notificationService: notificationService,
               ),
             ),
@@ -297,7 +306,11 @@ void main() {
         final toggle = tester.widget<SwitchListTile>(
           find.byKey(const Key('stealth_mode_toggle')),
         );
-        expect(toggle.value, isTrue, reason: 'Stealth mode should be ON for $duration');
+        expect(
+          toggle.value,
+          isTrue,
+          reason: 'Stealth mode should be ON for $duration',
+        );
       }
     });
   });
