@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 //import 'home.dart';
 import 'alarm.dart';
 //import 'settings.dart';
 
 
 void main() {
-  runApp( MyApp() );
+  tzdata.initializeTimeZones();
+  // Use UTC as the local timezone location. DateTime values used for
+  // notification scheduling are absolute instants, so UTC is correct and
+  // avoids relying on the unreliable timeZoneName abbreviation (e.g. "PDT")
+  // which is not a valid IANA tz database key.
+  tz.setLocalLocation(tz.UTC);
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -61,11 +69,14 @@ class _NavigationBottomState extends State<NavigationBottom> {
             });
           },
         ),
-        body: <Widget>[
-          Text("Home"), //Make these three widgets of completely built out pages so i can just import
-          AlarmPage(),
-          Text("Settings")
-        ][currentPageIndex]
+        body: IndexedStack(
+          index: currentPageIndex,
+          children: const [
+            Center(child: Text("Home")), // Make these three widgets of completely built out pages so i can just import
+            AlarmPage(),
+            Center(child: Text("Settings")),
+          ],
+        ),
     );
   }
 }

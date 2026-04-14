@@ -1,6 +1,6 @@
 ---
 name: codebase-simplification
-description: 'Comprehensive codebase analysis and optimization for simplicity. Use when: refactoring code to reduce complexity, eliminating code duplication, removing unused features, improving code readability, and reducing maintenance burden. Maintains full functionality while prioritizing simplicity over performance.'
+description: 'Comprehensive codebase analysis and optimization for simplicity. Use when: refactoring code to reduce complexity, eliminating code duplication, removing unused features, improving code readability, and reducing maintenance burden. Maintains full functionality while prioritizing simplicity over performance. Requires branch-first workflow and a merge request/pull request before merge.'
 argument-hint: 'Codebase or specific modules to analyze and simplify'
 ---
 
@@ -37,8 +37,26 @@ This skill provides a structured methodology to analyze your entire codebase, id
 | **Remove Waste** | Delete unused code, dead branches, and redundant logic |
 | **Minimal Dependencies** | Reduce coupling between modules and external dependencies |
 | **KISS (Keep It Simple, Stupid)** | Prefer simple solutions over complex ones |
+| **Branch Safety First** | Never work directly on main; use a feature branch and finish with a merge request/pull request |
 
 ## Step-by-Step Procedure
+
+### Phase 0: Git Safety Setup (Mandatory)
+
+**Goal**: Protect main from accidental destructive refactors.
+
+1. **Create a New Branch Before Any Code Changes**
+   - Pull latest main/default branch
+   - Create a dedicated branch (for example: `simplify/<scope>-<date>`)
+   - Confirm you are not on main before modifying files
+
+2. **Commit in Small, Logical Steps**
+   - Group commits by refactor intent (dead code removal, deduplication, naming, etc.)
+   - Write clear commit messages describing what was simplified and why
+
+3. **Never Rewrite Main During Refactoring**
+   - Do not force-push main/default branch
+   - Do not bypass review for broad simplification changes
 
 ### Phase 1: Codebase Discovery & Analysis
 
@@ -154,9 +172,20 @@ This skill provides a structured methodology to analyze your entire codebase, id
    - Clarify any complex remaining logic with comments
    - Update README if setup/build process changed
 
+5. **Open Merge Request / Pull Request (Required)**
+   - Push the simplification branch to remote
+   - Open a merge request/pull request targeting main/default branch
+   - Include summary of simplifications and functionality verification steps
+   - Merge only after review and passing checks
+
 ## Example Workflow (Dart/Flutter Project)
 
 ```
+0. Git Safety Phase (mandatory)
+   → Update local main
+   → Create simplify/lib-cleanup branch
+   → Verify all changes happen on branch, not main
+
 1. Analysis Phase
    → Scan Flutter project structure and dependencies
    → Identify unused imports in lib/
@@ -178,6 +207,11 @@ This skill provides a structured methodology to analyze your entire codebase, id
    → Run flutter test
    → Manual testing on hot reload
    → Review simplified functions
+
+5. Merge Request Phase
+   → Push simplify/lib-cleanup branch
+   → Open merge request/pull request to main
+   → Merge only after review and checks pass
 ```
 
 ## Common Simplification Patterns
@@ -247,6 +281,7 @@ doWork();
 | Change everything at once | Hard to identify what broke | Refactor incrementally, testing after each change |
 | Over-abstract common code | Creates unnecessary indirection | Abstract only when duplication is clear |
 | Remove comments from complex logic | Loses context and intent | Keep clarifying comments, improve clarity instead |
+| Work directly on main/default branch | Risks unrecoverable regressions | Always create a dedicated branch and finish with a merge request/pull request |
 
 ## Next Steps After Simplification
 
