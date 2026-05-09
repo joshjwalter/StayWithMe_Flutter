@@ -76,7 +76,8 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   late final AlarmApiClient _apiClient;
   late final bool _ownsApiClient;
   late final NotificationService _notificationService;
-  bool _notificationPermissionRequested = false;
+  // null = never requested, true/false = last known grant result
+  bool? _notificationsPermitted;
 
   // --- selection state (idle phase) ---
   Duration _selectedDuration = kStandardTimerPresets.last; // default 60 min
@@ -256,24 +257,18 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       _statusMessage = 'Starting timer…';
     });
 
-    // Request notification permissions on first timer start.
-    // Only mark the request as attempted after it completes successfully so
-    // that a platform exception does not permanently suppress future prompts.
-    bool notificationsPermitted = false;
-    if (!_notificationPermissionRequested) {
+    // Request notification permissions on first timer start, then cache the
+    // result so subsequent starts reuse the actual granted/denied outcome.
+    if (_notificationsPermitted == null) {
       try {
-        notificationsPermitted = await _notificationService
-            .requestPermissions();
-        _notificationPermissionRequested = true;
+        _notificationsPermitted =
+            await _notificationService.requestPermissions();
       } on Exception catch (e) {
         // Permission request failed (e.g. platform channel error).
         // Proceed with the timer start; notifications simply won't be scheduled.
         debugPrint('Notification permission request failed: $e');
+        _notificationsPermitted = false;
       }
-    } else {
-      // Permission was already requested on a previous start; assume the
-      // previous answer still applies and proceed optimistically.
-      notificationsPermitted = true;
     }
 
     try {
@@ -312,7 +307,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       return;
     }
 
-    if (notificationsPermitted) {
+    if (_notificationsPermitted == true) {
       try {
         final exactSchedulingSupported = await _notificationService
             .supportsExactScheduling();

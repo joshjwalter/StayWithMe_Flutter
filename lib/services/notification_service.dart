@@ -75,8 +75,11 @@ class NotificationService {
     } else if (defaultTargetPlatform == TargetPlatform.android) {
       final implementation = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
+      // If implementation is null (e.g. web, test env without plugin) treat as
+      // "not granted".  On pre-Android-13 devices the plugin itself returns true
+      // because no runtime permission is required, so the fallback is not needed.
       final result = await implementation?.requestNotificationsPermission();
-      return result ?? true; // Default true for older Android versions
+      return result ?? false;
     }
     return false;
   }
