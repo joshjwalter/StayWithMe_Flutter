@@ -141,4 +141,72 @@ void main() {
 
     apiClient.dispose();
   });
+
+  group('Stealth Mode', () {
+    test('AlarmApiClient includes stealthMode=false by default', () async {
+      final fixedNow = DateTime.utc(2026, 1, 1, 15, 0, 0);
+      final apiClient = AlarmApiClient(
+        baseUrl: fixture.baseUrl,
+        nowProvider: () => fixedNow,
+      );
+
+      await apiClient.sendStartAlarm(
+        duration: const Duration(minutes: 15),
+        timerId: 'NORMAL-001',
+      );
+
+      final events = await fixture.fetchEvents();
+      expect(events.length, 1);
+
+      final payload = jsonDecode(events[0]['body'] as String) as Map<String, dynamic>;
+      expect(payload['stealthMode'], isFalse);
+
+      apiClient.dispose();
+    });
+
+    test('AlarmApiClient sends stealthMode=true when specified', () async {
+      final fixedNow = DateTime.utc(2026, 1, 1, 16, 0, 0);
+      final apiClient = AlarmApiClient(
+        baseUrl: fixture.baseUrl,
+        nowProvider: () => fixedNow,
+      );
+
+      await apiClient.sendStartAlarm(
+        duration: const Duration(minutes: 30),
+        timerId: 'STEALTH-001',
+        stealthMode: true,
+      );
+
+      final events = await fixture.fetchEvents();
+      expect(events.length, 1);
+
+      final payload = jsonDecode(events[0]['body'] as String) as Map<String, dynamic>;
+      expect(payload['event'], 'alarm_start');
+      expect(payload['timerId'], 'STEALTH-001');
+      expect(payload['durationSeconds'], 1800);
+      expect(payload['stealthMode'], isTrue);
+
+      apiClient.dispose();
+    });
+
+    test('AlarmApiClient sends stealthMode=false when explicitly false', () async {
+      final fixedNow = DateTime.utc(2026, 1, 1, 17, 0, 0);
+      final apiClient = AlarmApiClient(
+        baseUrl: fixture.baseUrl,
+        nowProvider: () => fixedNow,
+      );
+
+      await apiClient.sendStartAlarm(
+        duration: const Duration(minutes: 45),
+        timerId: 'NORMAL-002',
+        stealthMode: false,
+      );
+
+      final events = await fixture.fetchEvents();
+      final payload = jsonDecode(events[0]['body'] as String) as Map<String, dynamic>;
+      expect(payload['stealthMode'], isFalse);
+
+      apiClient.dispose();
+    });
+  });
 }
