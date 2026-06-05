@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:stay_with_me_flutter/api/alarm_api_client.dart';
+import 'package:stay_with_me_flutter/infrastructure/api/alarm_api_client.dart';
 
 void main() {
   const baseUrl = String.fromEnvironment('API_BASE_URL');

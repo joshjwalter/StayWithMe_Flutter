@@ -17,6 +17,9 @@ class AlarmApiClient {
   final http.Client _client;
   final bool _ownsClient;
   final DateTime Function() _nowProvider;
+  static const Map<String, String> _jsonHeaders = {
+    'content-type': 'application/json',
+  };
 
   static String _resolveBaseUrl(String? explicitBaseUrl) {
     final fromArg = explicitBaseUrl?.trim() ?? '';
@@ -39,31 +42,30 @@ class AlarmApiClient {
 
   bool get isConfigured => _baseUrl.isNotEmpty;
 
-  Future<AlarmRequestResult> sendStartAlarm({
-    required Duration duration,
-    required String timerId,
+  AlarmRequestResult _notConfiguredResult() {
+    return const AlarmRequestResult(
+      sent: false,
+      statusCode: null,
+      responseBody: 'API_BASE_URL not configured',
+    );
+  }
+
+  Future<AlarmRequestResult> _sendEvent({
+    required String path,
+    required Map<String, dynamic> payload,
   }) async {
     if (!isConfigured) {
-      return const AlarmRequestResult(
-        sent: false,
-        statusCode: null,
-        responseBody: 'API_BASE_URL not configured',
-      );
+      return _notConfiguredResult();
     }
 
-    final uri = Uri.parse(_baseUrl).resolve('/alarm/start');
-    final body = jsonEncode({
-      'event': 'alarm_start',
-      'requestedAt': _nowProvider().toUtc().toIso8601String(),
-      'durationSeconds': duration.inSeconds,
-      'timerId': timerId,
-    });
-
-    final response = await _client.post(
-      uri,
-      headers: const {'content-type': 'application/json'},
-      body: body,
-    ).timeout(const Duration(seconds: 5));
+    final uri = Uri.parse(_baseUrl).resolve(path);
+    final response = await _client
+        .post(
+          uri,
+          headers: _jsonHeaders,
+          body: jsonEncode(payload),
+        )
+        .timeout(const Duration(seconds: 5));
 
     return AlarmRequestResult(
       sent: true,
@@ -72,34 +74,31 @@ class AlarmApiClient {
     );
   }
 
+  Future<AlarmRequestResult> sendStartAlarm({
+    required Duration duration,
+    required String timerId,
+  }) async {
+    return _sendEvent(
+      path: '/alarm/start',
+      payload: {
+        'event': 'alarm_start',
+        'requestedAt': _nowProvider().toUtc().toIso8601String(),
+        'durationSeconds': duration.inSeconds,
+        'timerId': timerId,
+      },
+    );
+  }
+
   Future<AlarmRequestResult> sendCancelAlarm({
     required String timerId,
   }) async {
-    if (!isConfigured) {
-      return const AlarmRequestResult(
-        sent: false,
-        statusCode: null,
-        responseBody: 'API_BASE_URL not configured',
-      );
-    }
-
-    final uri = Uri.parse(_baseUrl).resolve('/alarm/cancel');
-    final body = jsonEncode({
-      'event': 'alarm_cancel',
-      'requestedAt': _nowProvider().toUtc().toIso8601String(),
-      'timerId': timerId,
-    });
-
-    final response = await _client.post(
-      uri,
-      headers: const {'content-type': 'application/json'},
-      body: body,
-    ).timeout(const Duration(seconds: 5));
-
-    return AlarmRequestResult(
-      sent: true,
-      statusCode: response.statusCode,
-      responseBody: response.body,
+    return _sendEvent(
+      path: '/alarm/cancel',
+      payload: {
+        'event': 'alarm_cancel',
+        'requestedAt': _nowProvider().toUtc().toIso8601String(),
+        'timerId': timerId,
+      },
     );
   }
 
@@ -139,5 +138,6 @@ class AlarmRequestResult {
   final int? statusCode;
   final String responseBody;
 
-  bool get isSuccess => sent && statusCode != null && statusCode! >= 200 && statusCode! < 300;
+  bool get isSuccess =>
+      sent && statusCode != null && statusCode! >= 200 && statusCode! < 300;
 }

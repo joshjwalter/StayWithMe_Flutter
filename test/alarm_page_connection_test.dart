@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:stay_with_me_flutter/alarm.dart';
-import 'package:stay_with_me_flutter/api/alarm_api_client.dart';
+import 'package:stay_with_me_flutter/infrastructure/api/alarm_api_client.dart';
 import 'package:stay_with_me_flutter/countdown_timer.dart';
 
 class ScriptedAlarmApiClient extends AlarmApiClient {

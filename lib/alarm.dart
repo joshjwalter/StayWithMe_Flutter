@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'api/alarm_api_client.dart';
+import 'infrastructure/api/alarm_api_client.dart';
 import 'countdown_timer.dart';
 
 // ---------------------------------------------------------------------------
