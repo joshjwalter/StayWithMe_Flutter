@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-//import 'home.dart';
 import 'alarm.dart';
-//import 'settings.dart';
-
+import 'config/service_locator.dart';
 
 void main() {
-  runApp( MyApp() );
+  // Initialize dependency injection container.
+  setupServiceLocator();
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -13,17 +13,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          backgroundColor: Colors.blue,
-          title: const Text('Flutter is fun!')
-          ),
-
-        bottomNavigationBar: NavigationBottom(),
-      
-      )
-    );
+    return const MaterialApp(home: NavigationBottom());
   }
 }
 
@@ -35,37 +25,36 @@ class NavigationBottom extends StatefulWidget {
 }
 
 class _NavigationBottomState extends State<NavigationBottom> {
+  static const _tabLabels = ['Home', 'Alarm', 'Settings'];
+  static const _tabViews = <Widget>[
+    Center(child: Text('Home')),
+    AlarmPage(),
+    Center(child: Text('Settings')),
+  ];
+
   int currentPageIndex = 0;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.blue,
+        title: Text(_tabLabels[currentPageIndex]),
+      ),
       bottomNavigationBar: NavigationBar(
-          destinations: [
-            NavigationDestination(
-              icon: Icon(Icons.home), 
-              label: 'Home'
-              ),
-            NavigationDestination(
-              icon: Icon(Icons.alarm),
-              label: "Alarm"
-              ),
-            NavigationDestination(
-              icon: Icon(Icons.settings),
-              label: "Settings"
-              )
-          ],
-          selectedIndex: currentPageIndex,
-          onDestinationSelected: (int index) {
-            setState(() {
-              currentPageIndex = index;
-            });
-          },
-        ),
-        body: <Widget>[
-          Text("Home"), //Make these three widgets of completely built out pages so i can just import
-          AlarmPage(),
-          Text("Settings")
-        ][currentPageIndex]
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.alarm), label: 'Alarm'),
+          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+        ],
+        selectedIndex: currentPageIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            currentPageIndex = index;
+          });
+        },
+      ),
+      body: _tabViews[currentPageIndex],
     );
   }
 }

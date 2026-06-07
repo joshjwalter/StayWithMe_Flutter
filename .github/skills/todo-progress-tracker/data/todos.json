@@ -1,0 +1,60 @@
+{
+  "tasks": [
+    {
+      "createdAt": "2026-05-10T21:32:17.920525Z",
+      "description": "Ensure local main with merged feature branches is pushed/tracking origin/main.",
+      "id": "publish-consolidated-main",
+      "notes": "Verified: origin/main exists and remains the primary remote branch.",
+      "status": "done",
+      "title": "Publish consolidated main",
+      "updatedAt": "2026-05-10T21:58:52.753456Z"
+    },
+    {
+      "createdAt": "2026-05-10T21:32:18.012764Z",
+      "description": "Remove merged/deprecated origin branches from consolidation run (copilot/*, simplify/*, feature/*).",
+      "id": "cleanup-remote-branches",
+      "notes": "Still pending. Remote branches still present: origin/copilot/*, origin/feature/*, origin/simplify/*.",
+      "status": "pending",
+      "title": "Delete deprecated remote branches",
+      "updatedAt": "2026-05-10T21:58:52.865767Z"
+    },
+    {
+      "createdAt": "2026-05-10T21:32:18.105636Z",
+      "description": "Return to master after consolidation and keep ongoing local edits unchanged.",
+      "id": "preserve-master-worktree",
+      "notes": "Verified: current local edits are preserved in working tree while branch history remains intact.",
+      "status": "done",
+      "title": "Keep master worktree changes intact",
+      "updatedAt": "2026-05-10T21:58:52.984140Z"
+    },
+    {
+      "createdAt": "2026-05-10T21:58:53.103990Z",
+      "description": "Align current uncommitted repo changes: remove obsolete agent/skill files, complete API/main refactor updates, and keep pubspec/test changes consistent with the simplified structure.",
+      "id": "finalize-current-simplification-edits",
+      "notes": null,
+      "status": "in_progress",
+      "title": "Finalize current simplification edits",
+      "updatedAt": "2026-05-10T21:58:53.103990Z"
+    },
+    {
+      "createdAt": "2026-05-10T21:58:53.199537Z",
+      "description": "After review, create a cohesive commit for the tracked simplification edits and push to the intended branch.",
+      "id": "commit-and-push-simplification",
+      "notes": null,
+      "status": "pending",
+      "title": "Commit and push simplification changes",
+      "updatedAt": "2026-05-10T21:58:53.199537Z"
+    },
+    {
+      "createdAt": "2026-05-14T01:58:53.333077Z",
+      "description": "Pauseable, chunked refactor plan for bringing the repo into alignment with .github/instructions/architecture.instructions.md and .github/instructions/dart_n_flutter.instructions.md. Phases: app foundations, feature-first restructure, extract widget logic, fix exception handling, final compliance sweep.",
+      "id": "staywithme-phased-refactor-roadmap",
+      "notes": "Created from the repo-wide audit on 2026-05-13. Resume from app foundations first; later chunks depend on routing/state bootstrap and the server-authoritative timer decision.",
+      "status": "pending",
+      "title": "StayWithMe phased refactor roadmap",
+      "updatedAt": "2026-05-14T01:58:53.448917Z"
+    }
+  ],
+  "updatedAt": "2026-05-14T01:58:53.448985Z",
+  "version": 1
+}

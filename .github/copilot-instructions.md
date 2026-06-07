@@ -68,6 +68,18 @@ The fixture automatically allocates an ephemeral port and waits for the server t
 
 **Testing**: Inject a fake clock via `nowProvider` to control time in tests without waiting in real time.
 
+### Architecture Documentation Workflow
+
+Use the architecture docs together in this order:
+1. `/.github/instructions/architecture_usage_guide.md`
+2. `/.github/instructions/architecture_decisions.md` (**why**)
+3. `/.github/instructions/master_architecture.md` (**what/how**)
+4. `/.github/instructions/architecture.instructions.md` (enforcement)
+5. `/.github/instructions/dart_n_flutter.instructions.md` (Dart/Flutter baseline)
+
+If guidance conflicts, prefer `dart_n_flutter.instructions.md` unless
+`architecture_decisions.md` explicitly documents a safety-critical exception.
+
 ## Key Conventions
 
 ### Dependency Injection for Testing

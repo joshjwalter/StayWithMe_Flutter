@@ -1,0 +1,29 @@
+export const meta = {
+  name: 'phase2-completion',
+  description: 'Complete all remaining Phase 2 tasks using parallel subagents',
+  phases: [
+    {
+      title: 'Repository Implementation',
+      detail: 'Implement all AlarmRepositoryImpl methods in parallel'
+    },
+    {
+      title: 'Service Locator Setup',
+      detail: 'Create and integrate GetIt service locator'
+    },
+    {
+      title: 'Repository Tests',
+      detail: 'Create comprehensive tests for repository layer'
+    }
+  ]
+};
+
+// Task orchestration plan
+// Tasks 13-17: Repository implementation methods (parallel)
+// Tasks 18-19: Service locator (sequential)
+// Tasks 20-23: Tests (parallel)
+
+// Each agent will be dispatched with:
+// - Specific implementation task
+// - Model: opus for code writing
+// - Clear success criteria
+// - Commit requirement
