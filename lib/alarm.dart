@@ -1,8 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'domain/entities/connectivity_status.dart';
+import 'domain/entities/timer_entity.dart';
 import 'infrastructure/api/alarm_api_client.dart';
+import 'presentation/providers/connectivity_notifier.dart';
+import 'presentation/providers/timer_notifier.dart';
 import 'countdown_timer.dart';
 
 // ---------------------------------------------------------------------------
@@ -15,12 +20,10 @@ const List<Duration> kTimerPresets = [
   Duration(minutes: 60),
 ];
 
-
-
 // ---------------------------------------------------------------------------
 // AlarmPage
 // ---------------------------------------------------------------------------
-class AlarmPage extends StatefulWidget {
+class AlarmPage extends ConsumerStatefulWidget {
   const AlarmPage({super.key, this.apiClient, this.nowProvider});
 
   final AlarmApiClient? apiClient;
@@ -29,55 +32,23 @@ class AlarmPage extends StatefulWidget {
   final DateTime Function()? nowProvider;
 
   @override
-  State<AlarmPage> createState() => _AlarmPageState();
+  ConsumerState<AlarmPage> createState() => _AlarmPageState();
 }
 
-enum _ConnectivityStatus { checking, connected, disconnected }
-
-// ---------------------------------------------------------------------------
-// Timer lifecycle states
-// ---------------------------------------------------------------------------
-enum _TimerPhase {
-  /// Idle: user has not started a timer yet.
-  idle,
-
-  /// Active: timer is running, device is showing countdown.
-  active,
-
-  /// Expired: timer hit zero without being cancelled.
-  expired,
-
-  /// Cancelled: user cancelled before expiry.
-  cancelled,
-}
-
-class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
+class _AlarmPageState extends ConsumerState<AlarmPage> with WidgetsBindingObserver {
   late final AlarmApiClient _apiClient;
   late final bool _ownsApiClient;
 
-  // --- selection state (idle phase) ---
-  Duration _selectedDuration = kTimerPresets.last; // default 60 min
-
-  // --- active-timer state ---
-  _TimerPhase _phase = _TimerPhase.idle;
-  String? _activeTimerId;
-  DateTime? _targetTime;
-
-  // --- connectivity ---
-  _ConnectivityStatus _connectivityStatus = _ConnectivityStatus.checking;
+  // --- widget-local connectivity lifecycle (not managed by Riverpod) ---
   bool _connectivityCheckInFlight = false;
   DateTime? _lastConnectivityCheckAt;
   Timer? _connectivityTimer;
 
-  // --- warning overlay ---
-  bool _showFinalWarningOverlay = false;
-  // Remaining seconds captured when the 95% overlay is triggered.  Displayed
-  // in the overlay so the value stays consistent between timer ticks.
-  int _overlayRemainingSeconds = 0;
-
-  // --- request state ---
-  bool _requestInFlight = false;
-  String _statusMessage = '';
+  // --- convenience accessors (read from Riverpod) ---
+  TimerNotifier get _timerNotifier => ref.read(timerNotifierProvider.notifier);
+  TimerEntity get _timerState => ref.watch(timerNotifierProvider);
+  ConnectivityStatus get _connectivityState =>
+      ref.watch(connectivityNotifierProvider);
 
   @override
   void initState() {
@@ -112,16 +83,12 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   // -------------------------------------------------------------------------
 
   Duration get _connectivityPollingInterval {
-    switch (_phase) {
-      case _TimerPhase.active:
-        return _connectivityStatus == _ConnectivityStatus.disconnected
-            ? const Duration(seconds: 5)
-            : const Duration(seconds: 10);
-      case _TimerPhase.idle:
-      case _TimerPhase.expired:
-      case _TimerPhase.cancelled:
-        return const Duration(seconds: 30);
+    if (_timerState.phase == TimerPhase.active) {
+      return _connectivityState.isConnected
+          ? const Duration(seconds: 10)
+          : const Duration(seconds: 5);
     }
+    return const Duration(seconds: 30);
   }
 
   void _scheduleConnectivityCheck({
@@ -130,8 +97,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   }) {
     _connectivityTimer?.cancel();
     final nextDelay = delay ?? _connectivityPollingInterval;
-    final shouldPulse =
-        showChecking || _connectivityStatus == _ConnectivityStatus.disconnected;
+    final shouldPulse = showChecking || !_connectivityState.isConnected;
     if (nextDelay == Duration.zero) {
       _connectivityTimer = null;
       unawaited(_pollConnectivity(showChecking: shouldPulse));
@@ -150,8 +116,9 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     }
 
     _connectivityCheckInFlight = true;
+    final connNotifier = ref.read(connectivityNotifierProvider.notifier);
     if (showChecking && mounted) {
-      setState(() => _connectivityStatus = _ConnectivityStatus.checking);
+      connNotifier.setChecking();
     }
 
     final online = await _apiClient.checkConnectivity();
@@ -163,12 +130,8 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
     final now = widget.nowProvider != null
         ? widget.nowProvider!()
         : DateTime.now();
-    setState(() {
-      _connectivityStatus = online
-          ? _ConnectivityStatus.connected
-          : _ConnectivityStatus.disconnected;
-      _lastConnectivityCheckAt = now;
-    });
+    connNotifier.updateFromCheck(online);
+    _lastConnectivityCheckAt = now;
     _connectivityCheckInFlight = false;
     _scheduleConnectivityCheck();
   }
@@ -183,11 +146,10 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   // -------------------------------------------------------------------------
 
   int get _remainingSeconds {
-    if (_targetTime == null) return 0;
     final now = widget.nowProvider != null
         ? widget.nowProvider!()
         : DateTime.now();
-    final diff = _targetTime!.difference(now).inSeconds;
+    final diff = _timerState.targetTime.difference(now).inSeconds;
     return diff > 0 ? diff : 0;
   }
 
@@ -196,89 +158,82 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   // -------------------------------------------------------------------------
 
   Future<void> _startAlarm() async {
-    if (_requestInFlight || _phase != _TimerPhase.idle) return;
+    if (_timerNotifier.requestInFlight ||
+        _timerState.phase != TimerPhase.idle) {
+      return;
+    }
 
     final now = widget.nowProvider != null
         ? widget.nowProvider!()
         : DateTime.now();
     final timerId = now.millisecondsSinceEpoch.toRadixString(16).toUpperCase();
-    final target = now.add(_selectedDuration);
+    final target = now.add(_timerState.totalDuration);
 
-    setState(() {
-      _requestInFlight = true;
-      _statusMessage = 'Starting timer…';
-    });
+    _timerNotifier.setRequestInFlight(true);
+    _timerNotifier.setStatusMessage('Starting timer…');
 
     try {
       final result = await _apiClient.sendStartAlarm(
-        duration: _selectedDuration,
+        duration: _timerState.totalDuration,
         timerId: timerId,
       );
       if (!mounted) return;
 
       if (result.sent && !result.isSuccess) {
-        setState(() {
-          _statusMessage = 'Server error (${result.statusCode})';
-          _requestInFlight = false;
-        });
+        _timerNotifier.setRequestInFlight(false);
+        _timerNotifier
+            .setStatusMessage('Server error (${result.statusCode})');
         return;
       }
 
-      setState(() {
-        _activeTimerId = timerId;
-        _targetTime = target;
-        _phase = _TimerPhase.active;
-        _showFinalWarningOverlay = false;
-        _statusMessage = result.sent
-            ? 'Timer started (${result.statusCode})'
-            : 'Timer started (offline — server unreachable)';
-        _requestInFlight = false;
-      });
+      _timerNotifier.startTimer(
+        timerId: timerId,
+        targetTime: target,
+      );
+      _timerNotifier.setRequestInFlight(false);
+      _timerNotifier.setStatusMessage(result.sent
+          ? 'Timer started (${result.statusCode})'
+          : 'Timer started (offline — server unreachable)');
 
       _scheduleConnectivityCheck();
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _statusMessage = 'Failed to start timer (network error)';
-        _requestInFlight = false;
-      });
+      _timerNotifier.setRequestInFlight(false);
+      _timerNotifier.setStatusMessage('Failed to start timer (network error)');
     }
   }
 
   Future<void> _cancelAlarm() async {
-    if (_requestInFlight || _phase != _TimerPhase.active) return;
-    final timerId = _activeTimerId;
-    if (timerId == null) return;
+    if (_timerNotifier.requestInFlight ||
+        _timerState.phase != TimerPhase.active) {
+      return;
+    }
+    final timerId = _timerState.timerId;
+    if (timerId.isEmpty) return;
 
-    setState(() {
-      _requestInFlight = true;
-      _statusMessage = 'Cancelling…';
-    });
+    _timerNotifier.setRequestInFlight(true);
+    _timerNotifier.setStatusMessage('Cancelling…');
 
     try {
       final result = await _apiClient.sendCancelAlarm(timerId: timerId);
       if (!mounted) return;
 
-      setState(() {
-        _phase = _TimerPhase.cancelled;
-        _showFinalWarningOverlay = false;
-        _statusMessage = result.sent
-            ? 'Timer cancelled (${result.statusCode})'
-            : 'Cancelled (offline — server not reached)';
-        _requestInFlight = false;
-      });
+      _timerNotifier.cancelTimer();
+      _timerNotifier.setRequestInFlight(false);
+      _timerNotifier.setStatusMessage(result.sent
+          ? 'Timer cancelled (${result.statusCode})'
+          : 'Cancelled (offline — server not reached)');
       _scheduleConnectivityCheck();
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _statusMessage = 'Cancel failed (network error)';
-        _requestInFlight = false;
-      });
+      _timerNotifier.setRequestInFlight(false);
+      _timerNotifier.setStatusMessage('Cancel failed (network error)');
     }
   }
 
   void _onEightyPercentWarning() {
     // Shoulder-tap: show a non-dismissable SnackBar notification.
+    // Requires BuildContext, so it stays in the widget layer.
     final remaining = _remainingSeconds;
     final minutes = (remaining / 60).ceil();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -294,29 +249,18 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   }
 
   void _onNinetyFivePercentWarning() {
-    setState(() {
-      _overlayRemainingSeconds = _remainingSeconds;
-      _showFinalWarningOverlay = true;
-    });
+    _timerNotifier.showOverlay(_remainingSeconds);
   }
 
   void _onExpired() {
-    setState(() {
-      _phase = _TimerPhase.expired;
-      _showFinalWarningOverlay = false;
-      _statusMessage = 'Timer expired — alert sent to emergency contacts.';
-    });
+    _timerNotifier.expireTimer();
+    _timerNotifier
+        .setStatusMessage('Timer expired — alert sent to emergency contacts.');
     _scheduleConnectivityCheck();
   }
 
   void _resetToIdle() {
-    setState(() {
-      _phase = _TimerPhase.idle;
-      _activeTimerId = null;
-      _targetTime = null;
-      _showFinalWarningOverlay = false;
-      _statusMessage = '';
-    });
+    _timerNotifier.resetToIdle();
     _scheduleConnectivityCheck();
   }
 
@@ -343,7 +287,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(
-              child: _ServerConnectionPill(status: _connectivityStatus),
+              child: _ServerConnectionPill(status: _connectivityState),
             ),
           ),
         ],
@@ -351,21 +295,22 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
       body: Stack(
         children: [
           _buildBody(context),
-          if (_showFinalWarningOverlay) _buildFinalWarningOverlay(context),
+          if (_timerNotifier.showFinalWarningOverlay)
+            _buildFinalWarningOverlay(context),
         ],
       ),
     );
   }
 
   Widget _buildBody(BuildContext context) {
-    switch (_phase) {
-      case _TimerPhase.idle:
+    switch (_timerState.phase) {
+      case TimerPhase.idle:
         return _buildIdleView(context);
-      case _TimerPhase.active:
+      case TimerPhase.active:
         return _buildActiveView(context);
-      case _TimerPhase.expired:
+      case TimerPhase.expired:
         return _buildExpiredView(context);
-      case _TimerPhase.cancelled:
+      case TimerPhase.cancelled:
         return _buildCancelledView(context);
     }
   }
@@ -388,12 +333,13 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             runSpacing: 12,
             alignment: WrapAlignment.center,
             children: kTimerPresets.map((d) {
-              final isSelected = d == _selectedDuration;
+              final isSelected = d == _timerState.totalDuration;
               final label = '${d.inMinutes} min';
               return ChoiceChip(
                 label: Text(label),
                 selected: isSelected,
-                onSelected: (_) => setState(() => _selectedDuration = d),
+                onSelected: (_) =>
+                    ref.read(timerNotifierProvider.notifier).selectDuration(d),
               );
             }).toList(),
           ),
@@ -403,19 +349,19 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             height: 60,
             child: ElevatedButton(
               key: const Key('start_button'),
-              onPressed: _requestInFlight ? null : _startAlarm,
+              onPressed: _timerNotifier.requestInFlight ? null : _startAlarm,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueGrey,
                 foregroundColor: Colors.white,
               ),
-              child: _requestInFlight
+              child: _timerNotifier.requestInFlight
                   ? const CircularProgressIndicator(color: Colors.white)
                   : const Text('Start Timer', style: TextStyle(fontSize: 18)),
             ),
           ),
-          if (_statusMessage.isNotEmpty) ...[
+          if (_timerNotifier.statusMessage.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Text(_statusMessage, textAlign: TextAlign.center),
+            Text(_timerNotifier.statusMessage, textAlign: TextAlign.center),
           ],
         ],
       ),
@@ -425,11 +371,9 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
   // --- Active view: countdown + offline banner + cancel button ---
 
   Widget _buildActiveView(BuildContext context) {
-    final showOfflineBanner =
-        _connectivityStatus == _ConnectivityStatus.disconnected;
+    final showOfflineBanner = !_connectivityState.isConnected;
     final isCancelEnabled =
-        !_requestInFlight &&
-        _connectivityStatus == _ConnectivityStatus.connected;
+        !_timerNotifier.requestInFlight && _connectivityState.isConnected;
 
     return Column(
       children: [
@@ -468,9 +412,9 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                   ),
                   child: Center(
                     child: CountDownTimer(
-                      key: ValueKey(_activeTimerId),
-                      targetTime: _targetTime,
-                      totalDuration: _selectedDuration,
+                      key: ValueKey(_timerState.timerId),
+                      targetTime: _timerState.targetTime,
+                      totalDuration: _timerState.totalDuration,
                       nowProvider: widget.nowProvider ?? DateTime.now,
                       onEightyPercentWarning: _onEightyPercentWarning,
                       onNinetyFivePercentWarning: _onNinetyFivePercentWarning,
@@ -480,7 +424,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  _statusMessage,
+                  _timerNotifier.statusMessage,
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 13, color: Colors.grey),
                 ),
@@ -497,7 +441,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                       disabledBackgroundColor: Colors.red.shade200,
                       disabledForegroundColor: Colors.white70,
                     ),
-                    child: _requestInFlight
+                    child: _timerNotifier.requestInFlight
                         ? const CircularProgressIndicator(color: Colors.white)
                         : const Text(
                             'Cancel Timer',
@@ -562,7 +506,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          Text(_statusMessage, textAlign: TextAlign.center),
+          Text(_timerNotifier.statusMessage, textAlign: TextAlign.center),
           const SizedBox(height: 32),
           SizedBox(
             width: 200,
@@ -582,8 +526,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 
   Widget _buildFinalWarningOverlay(BuildContext context) {
     final isCancelEnabled =
-        !_requestInFlight &&
-        _connectivityStatus == _ConnectivityStatus.connected;
+        !_timerNotifier.requestInFlight && _connectivityState.isConnected;
 
     return Positioned.fill(
       child: Material(
@@ -603,7 +546,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                 Text(
                   // Show the exact remaining time (MM:SS) consistent with the
                   // countdown widget, snapped to when the overlay was triggered.
-                  '${CountDownTimer.formatMmSs(_overlayRemainingSeconds)} remaining',
+                  '${CountDownTimer.formatMmSs(_timerNotifier.overlayRemainingSeconds)} remaining',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
@@ -642,8 +585,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
                 const SizedBox(height: 16),
                 TextButton(
                   key: const Key('dismiss_overlay_button'),
-                  onPressed: () =>
-                      setState(() => _showFinalWarningOverlay = false),
+                  onPressed: () => _timerNotifier.dismissOverlay(),
                   child: const Text(
                     'Dismiss (timer continues)',
                     style: TextStyle(color: Colors.white60),
@@ -661,7 +603,7 @@ class _AlarmPageState extends State<AlarmPage> with WidgetsBindingObserver {
 class _ServerConnectionPill extends StatefulWidget {
   const _ServerConnectionPill({required this.status});
 
-  final _ConnectivityStatus status;
+  final ConnectivityStatus status;
 
   @override
   State<_ServerConnectionPill> createState() => _ServerConnectionPillState();
@@ -683,7 +625,8 @@ class _ServerConnectionPillState extends State<_ServerConnectionPill>
   @override
   void didUpdateWidget(covariant _ServerConnectionPill oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.status != widget.status) {
+    if (oldWidget.status.isConnected != widget.status.isConnected ||
+        oldWidget.status.isChecking != widget.status.isChecking) {
       _controller.duration = _durationFor(widget.status);
       _syncAnimation();
     }
@@ -695,52 +638,30 @@ class _ServerConnectionPillState extends State<_ServerConnectionPill>
     super.dispose();
   }
 
-  Duration _durationFor(_ConnectivityStatus status) {
-    switch (status) {
-      case _ConnectivityStatus.checking:
-        return const Duration(milliseconds: 1800);
-      case _ConnectivityStatus.disconnected:
-        return const Duration(milliseconds: 2800);
-      case _ConnectivityStatus.connected:
-        return const Duration(milliseconds: 1);
-    }
+  Duration _durationFor(ConnectivityStatus status) {
+    if (status.isChecking) return const Duration(milliseconds: 1800);
+    if (!status.isConnected) return const Duration(milliseconds: 2800);
+    return const Duration(milliseconds: 1);
   }
 
-  bool get _isPulsing =>
-      widget.status == _ConnectivityStatus.checking ||
-      widget.status == _ConnectivityStatus.disconnected;
+  bool get _isPulsing => widget.status.isChecking || !widget.status.isConnected;
 
   Color get _dotColor {
-    switch (widget.status) {
-      case _ConnectivityStatus.checking:
-        return Colors.amber.shade700;
-      case _ConnectivityStatus.connected:
-        return Colors.green.shade600;
-      case _ConnectivityStatus.disconnected:
-        return Colors.red.shade600;
-    }
+    if (widget.status.isChecking) return Colors.amber.shade700;
+    if (widget.status.isConnected) return Colors.green.shade600;
+    return Colors.red.shade600;
   }
 
   Color get _foregroundColor {
-    switch (widget.status) {
-      case _ConnectivityStatus.checking:
-        return Colors.amber.shade900;
-      case _ConnectivityStatus.connected:
-        return Colors.green.shade800;
-      case _ConnectivityStatus.disconnected:
-        return Colors.red.shade800;
-    }
+    if (widget.status.isChecking) return Colors.amber.shade900;
+    if (widget.status.isConnected) return Colors.green.shade800;
+    return Colors.red.shade800;
   }
 
   String get _label {
-    switch (widget.status) {
-      case _ConnectivityStatus.checking:
-        return 'Checking';
-      case _ConnectivityStatus.connected:
-        return 'Connected';
-      case _ConnectivityStatus.disconnected:
-        return 'No connection';
-    }
+    if (widget.status.isChecking) return 'Checking';
+    if (widget.status.isConnected) return 'Connected';
+    return 'No connection';
   }
 
   String get _semanticLabel => 'Server connection status: $_label';
